@@ -78,7 +78,29 @@ app.post('/login', async (req, res) => {
         }
         });
 
-        app.post('/produtos', async (req, res) => {
+        //autenticaçao
+        const verificarToken = async (req: any, res: any, next: any) => {
+            //token enviado pelo frontend pelo Header
+            const authHeader = req.headers['authorization'];
+
+            //cortando espaço do token para pegar só a segunda parte ex: "Bearer eyaSJADJwa..."
+            const token = authHeader && authHeader.split(' ')[1];
+
+            if(!token){
+                return res.status(401).json({err: 'Acesso Negado. Token não fornecido.'});
+            }
+
+            try{
+                //biblioteca jwt tenta decifrar token usando chave .env (se nao bater vai direto pro catch)
+                jwt.verify(token, process.env.JWT_SECRET as string);
+
+                next();
+            }catch(err){
+                return res.status(401).json({err: 'Token inválido.'});
+            }
+        }
+
+        app.post('/produtos', verificarToken, async (req, res) => {
             try{
                 const { nome, preco, estoque, id_loja } = req.body;
 
@@ -96,7 +118,7 @@ app.post('/login', async (req, res) => {
             }
         });
 
-        app.get('/produtos', async (req, res) => {
+        app.get('/produtos', verificarToken, async (req, res) => {
             try{
                 const resultado = await pool.query('SELECT * FROM produtos ORDER BY criado_em DESC');
                 res.status(200).json(resultado.rows);
@@ -106,7 +128,7 @@ app.post('/login', async (req, res) => {
             }
         });
 
-        app.put('/produtos/:id', async (req, res) => {
+        app.put('/produtos/:id', verificarToken, async (req, res) => {
             try{
                 const { id } = req.params;
                 const { nome, preco, estoque } = req.body
@@ -129,7 +151,7 @@ app.post('/login', async (req, res) => {
             }
         });
 
-        app.delete('/produtos/:id', async (req, res) => {
+        app.delete('/produtos/:id', verificarToken, async (req, res) => {
             try{
                 const {id} = req.params;
                 
