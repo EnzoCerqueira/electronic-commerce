@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { testarConexao, pool } from './database';
@@ -6,6 +7,7 @@ import { testarConexao, pool } from './database';
 const app = express();
 const PORTA = 3000;
 
+app.use(cors());
 app.use(express.json());
 
 app.get('/usuarios', async (req, res) => {
@@ -118,7 +120,7 @@ app.post('/login', async (req, res) => {
             }
         });
 
-        app.get('/produtos', verificarToken, async (req, res) => {
+        app.get('/produtos', verificarToken, async (req: any, res: any) => {
             try{
                 const resultado = await pool.query('SELECT * FROM produtos ORDER BY criado_em DESC');
                 res.status(200).json(resultado.rows);
@@ -164,6 +166,115 @@ app.post('/login', async (req, res) => {
             }catch(err){
                 console.error(err);
                 res.status(500).json({erro: 'Erro ao deletar produto.'});
+            }
+        })
+
+        app.get('/pedidos', verificarToken, async(req: any, res: any) => {
+            try{
+                const query = `
+                    SELECT 
+                        pedidos.id AS numero_pedido,
+                        usuarios.nome AS comprador,
+                        produtos.nome AS produto_comprado,
+                        pedidos.quantidade,
+                        produtos.preco AS preco_unitario,
+                        (pedidos.quantidade * produtos.preco) AS valor_total
+                    FROM pedidos
+                    JOIN usuarios ON pedidos.id_usuario = usuarios.id
+                    JOIN produtos ON pedidos.id_produto = produtos.id;
+                `;
+
+                const resultado = await pool.query(query);
+                res.status(200).json(resultado.rows);
+            }catch(err){
+                console.error(err);
+                res.status(500).json({erro: 'Erro ao buscar pedidos'});
+            }
+        });
+
+        app.post('/pedidos', verificarToken, async(req: any, res: any) => {
+            try{
+                const {id_usuario, id_produto, quantidade} = req.body;
+
+                if(!id_usuario || !id_produto || !quantidade){
+                    return res.status(400).json({erro: 'Dados incompletos. É obrigatório enviar id_usuario, id_produto e quantidade.'});
+                }
+                const query = `
+                    INSERT INTO pedidos (id_usuario, id_produto, quantidade)
+                    VALUES ($1, $2, $3)
+                    RETURNING *;
+                `;
+
+                const valores = [id_usuario, id_produto, quantidade];
+
+                const resultado = await pool.query(query, valores);
+                return res.status(201).json({
+                    mensagem: 'Pedido realizado com sucesso!',
+                    pedido: resultado.rows[0]
+                });
+            }catch(err){
+                console.error(err);
+                res.status(500).json({erro: 'Erro interno do servidor ao registar o pedido'})
+            }
+        })
+
+        app.delete('/pedidos/:id', verificarToken, async (req: any, res: any) => {
+            try{
+                const {id} = req.params;
+
+                const query = `
+                    DELETE FROM pedidos
+                    WHERE id = $1
+                    RETURNING *;
+                `
+
+                const resultado = await pool.query(query, [id]);
+
+                if (resultado.rows.length === 0){
+                    return res.status(404).json({erro: 'Pedido não encontrado ou já foi cancelado.'})
+                }
+
+                return res.status(200).json({
+                    mensagem: 'Pedido cancelado e removido do sistema com sucesso!',
+                    pedidoCancelado: resultado.rows[0]
+                
+                });
+            }catch(err){
+                console.error('Erro ao deletar pedido', err);
+                return res.status(500).json({erro: 'Erro interno do servidor ao cancelar o pedido.'})
+            }
+        });
+
+        app.put('/pedidos/:id', verificarToken, async (req: any, res: any) => {
+            try{
+                const {id} = req.params;
+                const {quantidade} = req.body;
+
+                if(!quantidade || quantidade <= 0){
+                    return res.status(400).json({
+                        erro: 'Por favor, informe uma  quantidade válida maior que zero.'
+                    })
+                }
+                const query = `
+                    UPDATE pedidos
+                    SET quantidade = $1
+                    WHERE id = $2
+                    RETURNING *;
+                `;
+
+                const resultado = await pool.query(query, [quantidade, id]);
+
+                if(resultado.rows.length === 0){
+                    return res.status(404).json({erro: 'Pedido não encontrado.'});
+                }
+
+                return res.status(200).json({
+                    mensagem: 'Quantidade do pedido atualizada com sucesso!',
+                    pedidoAtualizado: resultado.rows[0]
+                });
+            }catch(err){
+                console.error(err);
+                return res.status(500).json({erro: 'Erro interno do servidor ao tentar atualizar o pedido'});
             }
         })
 
